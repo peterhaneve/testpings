@@ -1,0 +1,22 @@
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+	<SwitchPreference
+		android:key="notifications_new_ping"
+		android:title="@string/pref_title_notify"
+		android:defaultValue="true"/>
+	<RingtonePreference
+		android:dependency="notifications_new_ping"
+		android:key="notifications_new_ping_sound"
+		android:title="@string/pref_title_sound"
+		android:ringtoneType="notification"
+		android:defaultValue="content://settings/system/notification_sound"/>
+	<SwitchPreference
+		android:dependency="notifications_new_ping"
+		android:key="notifications_new_ping_vibrate"
+		android:title="@string/pref_title_vibrate"
+		android:defaultValue="true"/>
+	<SwitchPreference
+		android:dependency="notifications_new_ping"
+		android:key="notifications_new_ping_light"
+		android:title="@string/pref_title_light"
+		android:defaultValue="false"/>
+</PreferenceScreen>

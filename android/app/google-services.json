@@ -1,0 +1,42 @@
+{
+  "project_info": {
+    "project_number": "245911079181",
+    "firebase_url": "https://test-pings-please-ignore.firebaseio.com",
+    "project_id": "test-pings-please-ignore",
+    "storage_bucket": "test-pings-please-ignore.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:245911079181:android:795c2099d30c35ce",
+        "android_client_info": {
+          "package_name": "com.pleaseignore.pings.android"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "245911079181-a4o1s841oq7o0dpoker7beak9sso1ec3.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCyiMwBOCERMcBQc8oqfdulBSYHHRBbzk8"
+        }
+      ],
+      "services": {
+        "analytics_service": {
+          "status": 1
+        },
+        "appinvite_service": {
+          "status": 1,
+          "other_platform_oauth_client": []
+        },
+        "ads_service": {
+          "status": 2
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
