@@ -1,6 +1,7 @@
 package com.pleaseignore.pings.android;
 
 import android.annotation.TargetApi;
+import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.Configuration;
@@ -10,17 +11,22 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.preference.*;
-import android.support.v7.app.ActionBar;
 import android.support.v7.app.AppCompatDelegate;
 import android.text.TextUtils;
 import android.view.MenuItem;
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.GoogleApiAvailability;
+import com.google.android.gms.tasks.OnSuccessListener;
+import com.google.android.gms.tasks.Task;
+import com.google.firebase.messaging.FirebaseMessaging;
 
 import java.util.*;
 
 /**
  * The main user-visible activity of this class consists of only ping preferences.
  */
-public class PingSettingsActivity extends AppCompatPreferenceActivity {
+public class PingSettingsActivity extends AppCompatPreferenceActivity implements
+		OnSuccessListener<Void> {
 	/**
 	 * A preference value change listener that updates the preference's summary
 	 * to reflect its new value.
@@ -79,6 +85,26 @@ public class PingSettingsActivity extends AppCompatPreferenceActivity {
 			""));
 	}
 	/**
+	 * Reports true if Google Play services are available, and false otherwise.
+	 *
+	 * @param activity the context to check for services
+	 * @param with the code to be executed when the services are available
+	 */
+	public static void ensureGooglePlayAvailable(final Activity activity,
+												 OnSuccessListener<Void> with) {
+		final GoogleApiAvailability avail = GoogleApiAvailability.getInstance();
+		if (avail.isGooglePlayServicesAvailable(activity) == ConnectionResult.SUCCESS) {
+			// Services are already available, execute listener now
+			if (with != null)
+				with.onSuccess(null);
+		} else {
+			// Make services available, and execute if successful
+			final Task<Void> result = avail.makeGooglePlayServicesAvailable(activity);
+			if (with != null)
+				result.addOnSuccessListener(with);
+		}
+	}
+	/**
 	 * Helper method to determine if the device has an extra-large screen. For
 	 * example, 10" tablets are extra-large.
 	 */
@@ -103,23 +129,19 @@ public class PingSettingsActivity extends AppCompatPreferenceActivity {
 	protected void onCreate(Bundle savedInstanceState) {
 		AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_AUTO);
 		super.onCreate(savedInstanceState);
-		setupActionBar();
+		ensureGooglePlayAvailable(this, this);
 	}
 	public boolean onIsMultiPane() {
 		return isXLargeTablet(this);
 	}
-	/**
-	 * Set up the {@link android.app.ActionBar}, if the API is available.
-	 */
-	private void setupActionBar() {
-		final ActionBar actionBar = getSupportActionBar();
-		if (actionBar != null)
-			actionBar.setDisplayHomeAsUpEnabled(true);
+	protected void onResume() {
+		super.onResume();
+		ensureGooglePlayAvailable(this, null);
 	}
+	public void onSuccess(Void ignore) { }
 
 	/**
-	 * Shows only the general preferences, which are currently empty but may contain other
-	 * options in the future.
+	 * Shows only the general preferences, which contain login preferences and the about box.
 	 */
 	@TargetApi(Build.VERSION_CODES.HONEYCOMB)
 	public static class GeneralPreferenceFragment extends PreferenceFragment {
@@ -127,6 +149,16 @@ public class PingSettingsActivity extends AppCompatPreferenceActivity {
 			super.onCreate(savedInstanceState);
 			addPreferencesFromResource(R.xml.pref_general);
 			setHasOptionsMenu(true);
+			final Preference loginPref = findPreference("pref_login");
+			loginPref.setSummary("Not logged in");
+			loginPref.setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
+				public boolean onPreferenceClick(Preference preference) {
+					// Start a login activity
+					final Intent intent = new Intent(getActivity(), TESTLoginActivity.class);
+					startActivity(intent);
+					return true;
+				}
+			});
 			// Update summary of about to the current build version
 			findPreference("pref_about").setSummary(BuildConfig.APPLICATION_ID + " " +
 				BuildConfig.VERSION_NAME);

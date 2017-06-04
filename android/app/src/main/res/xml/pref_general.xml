@@ -1,6 +1,8 @@
 <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
-	<Preference
-		android:key="pref_about"
-		android:title="@string/pref_title_about"
-		android:summary="@string/pref_title_about"/>
+	<Preference android:key="pref_login"
+				android:title="@string/pref_title_login"
+				android:summary="@string/pref_title_login"/>
+	<Preference android:key="pref_about"
+				android:title="@string/pref_title_about"
+				android:summary="@string/pref_title_about"/>
 </PreferenceScreen>
