@@ -4,6 +4,7 @@ import android.os.AsyncTask;
 import android.os.Bundle;
 import android.support.v7.app.ActionBar;
 import android.support.v7.app.AppCompatActivity;
+import android.support.v7.app.AppCompatDelegate;
 import android.text.TextUtils;
 import android.util.Log;
 import android.view.KeyEvent;
@@ -12,24 +13,28 @@ import android.view.inputmethod.EditorInfo;
 import android.widget.AutoCompleteTextView;
 import android.widget.EditText;
 import android.widget.TextView;
+import com.google.api.client.extensions.android.http.AndroidHttp;
+import com.google.api.client.extensions.android.json.AndroidJsonFactory;
+import com.google.api.client.http.*;
+import com.google.api.client.json.JsonFactory;
+import com.google.api.client.json.JsonObjectParser;
+import com.google.api.client.util.GenericData;
 import com.google.firebase.iid.FirebaseInstanceId;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.net.URLEncoder;
 
 /**
  * A login screen that offers login via TEST external credentials.
  */
-public final class TESTLoginActivity extends AppCompatActivity {
+public final class TESTLoginActivity extends AppCompatActivity implements HttpRequestInitializer {
 	/**
-	 * The encoding to use for all requests.
+	 * HTTP transport to use while logging in.
 	 */
-	private static final String ENCODING = "UTF-8";
+	private static final HttpTransport HTTP_TRANSPORT = AndroidHttp.newCompatibleTransport();
+	/**
+	 * Used to parse the JSON response from the server.
+	 */
+	private static final JsonFactory JSON_FACTORY = new AndroidJsonFactory();
 
 	/**
 	 * Is this username potentially valid?
@@ -68,10 +73,18 @@ public final class TESTLoginActivity extends AppCompatActivity {
 	 */
 	private View progressView;
 	/**
+	 * Creates HTTP login requests.
+	 */
+	private HttpRequestFactory requestFactory;
+	/**
 	 * Username field in the UI.
 	 */
 	private AutoCompleteTextView userText;
 
+	public TESTLoginActivity() {
+		// Set up response parser as JSON
+		requestFactory = HTTP_TRANSPORT.createRequestFactory(this);
+	}
 	/**
 	 * Attempts to sign in or register the account specified by the login form.
 	 * If there are form errors (invalid email, missing fields, etc.), the
@@ -113,6 +126,10 @@ public final class TESTLoginActivity extends AppCompatActivity {
 			}
 		}
 	}
+	public void initialize(HttpRequest request) {
+		// Server response parsed as JSON
+		request.setParser(new JsonObjectParser(JSON_FACTORY));
+	}
 	/**
 	 * Contacts the server and tries to verify the username and password. If it sticks, stores
 	 * the returned challenge token.
@@ -123,41 +140,29 @@ public final class TESTLoginActivity extends AppCompatActivity {
 	 */
 	private boolean login(final String userName, final String password) {
 		// TODO Switch to TEST Auth
+		// Use dummy host name from the strings to log in
 		final String dummyHost = getString(R.string.dummy_host), deviceID = FirebaseInstanceId.
 			getInstance().getToken();
 		boolean loggedIn = false;
 		if (deviceID != null)
 			try {
-				// Open connection to configured URL
-				final String loginURL = "http://" + dummyHost + "/login";
-				final HttpURLConnection conn = (HttpURLConnection)new URL(loginURL).
-					openConnection();
-				// Allow 10 seconds to connect
-				conn.setConnectTimeout(10000);
-				conn.setReadTimeout(5000);
-				conn.setRequestMethod("POST");
-				conn.setDoOutput(true);
 				// Create body
-				final String body = "username=" + URLEncoder.encode(userName, ENCODING) +
-					"&password=" + URLEncoder.encode(password, ENCODING) +
-					"&deviceID=" + URLEncoder.encode(deviceID, ENCODING);
-				// Send login data
-				final OutputStream os = conn.getOutputStream();
-				os.write(body.getBytes(ENCODING));
-				os.close();
+				final GenericData content = new GenericData();
+				content.put("username", userName);
+				content.put("password", password);
+				content.put("deviceID", deviceID);
+				// Open connection to configured URL
+				final GenericUrl loginURL = new GenericUrl("http://" + dummyHost + "/login");
+				final HttpRequest request = requestFactory.buildPostRequest(loginURL,
+					new UrlEncodedContent(content));
+				// Set 10 second timeout
+				request.setConnectTimeout(10000);
+				request.setReadTimeout(5000);
+				request.setNumberOfRetries(2);
 				// Read result value
-				if (conn.getResponseCode() == 200) {
-					final BufferedReader br = new BufferedReader(new InputStreamReader(
-						conn.getInputStream()));
-					try {
-						// Read first line from request and check if it is a challenge ID
-						final String line = br.readLine();
-						loggedIn = line != null && line.length() > 12;
-					} finally {
-						br.close();
-					}
-				}
-				conn.disconnect();
+				final HttpResponse response = request.execute();
+				final LoginStatus status = response.parseAs(LoginStatus.class);
+				loggedIn = status != null && status.valid;
 			} catch (IOException e) {
 				Log.e("Login", "Error when logging in", e);
 				loggedIn = false;

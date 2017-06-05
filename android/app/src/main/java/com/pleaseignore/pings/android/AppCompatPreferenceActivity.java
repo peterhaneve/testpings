@@ -25,6 +25,7 @@ public abstract class AppCompatPreferenceActivity extends PreferenceActivity {
 	private AppCompatDelegate getDelegate() {
 		if (delegate == null) {
 			delegate = AppCompatDelegate.create(this, null);
+			delegate.applyDayNight();
 		}
 		return delegate;
 	}

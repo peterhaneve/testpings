@@ -1,10 +1,16 @@
 package com.pleaseignore.pings.server;
 
 import com.sun.net.httpserver.HttpExchange;
+import org.apache.http.HttpStatus;
+import org.apache.http.client.config.RequestConfig;
+import org.apache.http.client.methods.CloseableHttpResponse;
+import org.apache.http.client.methods.HttpPost;
+import org.apache.http.entity.StringEntity;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClientBuilder;
+import org.apache.http.util.EntityUtils;
 
 import java.io.*;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.net.URLDecoder;
 import java.util.*;
 
@@ -21,6 +27,10 @@ public final class HttpUtilities {
 	 */
 	private static final String ENCODING = "UTF-8";
 	/**
+	 * Creates HTTP clients with the default timeout set.
+	 */
+	private static final HttpClientBuilder HTTP;
+	/**
 	 * The maximum amount of data to read from the request to avoid DoS attacks.
 	 */
 	private static final int MAX_REQUEST_LEN = 1024 * 1024;
@@ -28,6 +38,15 @@ public final class HttpUtilities {
 	 * The timeout to make requests in milliseconds.
 	 */
 	private static final int TIMEOUT = 5000;
+
+	static {
+		// Set timeout options
+		//  Static initializer blocks are undesirable, but it is really no different from
+		//  creating config as another static final variable
+		final RequestConfig config = RequestConfig.custom().setConnectTimeout(TIMEOUT).
+			setSocketTimeout(TIMEOUT).setConnectionRequestTimeout(TIMEOUT).build();
+		HTTP = HttpClientBuilder.create().setDefaultRequestConfig(config);
+	}
 
 	/**
 	 * Retrieves the request body of the exchange as a string.
@@ -71,32 +90,37 @@ public final class HttpUtilities {
 		return new String(out.toByteArray(), ENCODING);
 	}
 	/**
-	 * Makes an HTTP request to the specified URL with the API key provided in the Authorization
-	 * header and the JSON text passed in the body
+	 * Makes a POST HTTP request to the specified URL with the API key provided in the
+	 * Authorization header and the specified request body.
 	 *
 	 * @param url the URL to request
 	 * @param apiKey the application's API key
-	 * @param body the JSON request body
+	 * @param body the request body to send
 	 * @return true if the request was OK, or false otherwise
 	 * @throws IOException if an I/O error occurs
 	 */
 	public static boolean makeRequest(final String url, final String apiKey, final String body)
 			throws IOException {
-		final HttpURLConnection conn = (HttpURLConnection)new URL(url).openConnection();
 		boolean ok;
-		// Add API key auth
-		conn.addRequestProperty("Authorization", "key=" + apiKey);
-		conn.setConnectTimeout(TIMEOUT);
-		conn.setReadTimeout(TIMEOUT);
-		conn.setDoOutput(true);
-		final OutputStream dest = conn.getOutputStream();
+		final CloseableHttpClient client = HTTP.build();
 		try {
-			dest.write(body.getBytes(ENCODING));
-			ok = conn.getResponseCode() == 200;
+			final HttpPost request = new HttpPost(url);
+			// Add authorization header with API key
+			request.addHeader("Authorization", "key=" + apiKey);
+			request.addHeader("Content-Type", "application/json");
+			if (body != null)
+				request.setEntity(new StringEntity(body));
+			final CloseableHttpResponse response = client.execute(request);
+			try {
+				ok = response.getStatusLine().getStatusCode() == HttpStatus.SC_OK;
+				// Ensure request has been fully read so that it can be discarded
+				EntityUtils.consume(response.getEntity());
+			} finally {
+				response.close();
+			}
 		} finally {
-			dest.close();
+			client.close();
 		}
-		conn.disconnect();
 		return ok;
 	}
 	/**
@@ -135,8 +159,7 @@ public final class HttpUtilities {
 			throws IOException {
 		final byte[] data = response.getBytes(HttpUtilities.ENCODING);
 		// Encode as UTF-8 and set length
-		exchange.getResponseHeaders().add("Content-Type", "text/plain; charset=" +
-			HttpUtilities.ENCODING);
+		exchange.getResponseHeaders().add("Content-Type", "application/json");
 		exchange.sendResponseHeaders(200, data.length);
 		final OutputStream os = exchange.getResponseBody();
 		try {

@@ -1,5 +1,6 @@
 package com.pleaseignore.pings.server;
 
+import com.fasterxml.jackson.core.JsonFactory;
 import de.bytefish.fcmjava.client.settings.PropertiesBasedSettings;
 
 import java.io.IOException;

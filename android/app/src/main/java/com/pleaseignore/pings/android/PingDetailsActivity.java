@@ -12,7 +12,6 @@ import com.google.android.gms.tasks.OnSuccessListener;
  */
 public class PingDetailsActivity extends AppCompatActivity implements OnSuccessListener<Void> {
 	protected void onCreate(Bundle savedInstanceState) {
-		AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_AUTO);
 		super.onCreate(savedInstanceState);
 		setContentView(R.layout.activity_ping_details);
 		PingSettingsActivity.ensureGooglePlayAvailable(this, this);

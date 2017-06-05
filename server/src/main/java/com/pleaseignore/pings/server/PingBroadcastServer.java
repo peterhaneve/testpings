@@ -17,6 +17,9 @@ import java.io.InputStreamReader;
 import java.net.InetSocketAddress;
 import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Broadcasts pings to connected FCM clients. This is a stub server intended to prove the
@@ -24,7 +27,7 @@ import java.util.*;
  * integrate effectively with current TEST ping infrastructure. While possible to adapt, it is
  * recommended to rewrite as a module (in Java or otherwise) to the current ping/auth subsystem.
  */
-public final class PingBroadcastServer {
+public final class PingBroadcastServer implements Runnable {
 	/**
 	 * Key used in ping data to store the ping group name.
 	 */
@@ -33,6 +36,14 @@ public final class PingBroadcastServer {
 	 * Key used in ping data to store the full ping text.
 	 */
 	private static final String PING_KEY_MESSAGE = "message";
+	/**
+	 * The maximum number of retries allowed for a background request.
+	 */
+	private static final int RETRY_COUNT = 3;
+	/**
+	 * The time to wait between retries in milliseconds.
+	 */
+	private static final long RETRY_INTERVAL = 2000L;
 	/**
 	 * Port used to run the server.
 	 */
@@ -83,10 +94,6 @@ public final class PingBroadcastServer {
 	 */
 	private final FcmClient client;
 	/**
-	 * Map groups to randomized topic IDs.
-	 */
-	private final Map<String, String> groupMap;
-	/**
 	 * Manages the topic subscriptions for all users.
 	 */
 	private final InstanceIDManager manager;
@@ -95,21 +102,31 @@ public final class PingBroadcastServer {
 	 */
 	private HttpServer server;
 	/**
+	 * Thread pool for handling routine tasks.
+	 */
+	private final ScheduledExecutorService threadPool;
+	/**
+	 * Maps groups to randomized topic IDs.
+	 */
+	private final Map<String, String> topicMap;
+	/**
 	 * Stores active sessions. In a real server this needs to be a file or database object.
 	 */
 	private final Map<String, UserSession> users;
 
 	private PingBroadcastServer() {
-		groupMap = new HashMap<>(32);
 		final PropertiesBasedSettings settings = PropertiesBasedSettings.createFromDefault();
 		client = new FcmClient(settings);
 		manager = new InstanceIDManager(settings);
 		server = null;
+		threadPool = Executors.newScheduledThreadPool(2);
+		topicMap = new HashMap<>(32);
 		users = new HashMap<>(128);
 	}
 	/**
 	 * Filters the sessions, reporting only those subscribed to the specified group name
-	 * (English name, not FCM ID)
+	 * (English name, not FCM ID). Assumes that the topicMap is locked to prevent sessions
+	 * from being modified during the search.
 	 *
 	 * @param group the group to check
 	 * @return all sessions subscribed to this group (no expiry check)
@@ -141,40 +158,34 @@ public final class PingBroadcastServer {
 	 * users which have expired.
 	 */
 	private void rotateGroups() {
-		synchronized (groupMap) {
-			final Map<String, String> newGroupMap = new HashMap<>(groupMap.size());
-			// Iterate all groups
-			for (final Map.Entry<String, String> group : groupMap.entrySet()) {
-				final String groupCode = group.getValue();
-				// Unsub users from this group even if expired
-				if (groupCode.length() > 0)
-					try {
-						manager.removeClientsFromTopic(users.values(), groupCode);
-					} catch (IOException e) {
-						// Should be non-fatal, more robust solutions would retry
-						e.printStackTrace();
-					}
+		synchronized (topicMap) {
+			final Map<String, String> newGroupMap = new HashMap<>(topicMap.size());
+			for (final Map.Entry<String, String> entry : topicMap.entrySet()) {
+				final String topic = entry.getValue();
+				// Unsubscribe users from this topic even if expired
+				if (topic.length() > 0)
+					threadPool.submit(new RemoveClientsFromTopicTask(users.values(), topic));
 				// Generate new topic IDs for the groups
-				newGroupMap.put(group.getKey(), createTopicID());
+				newGroupMap.put(entry.getKey(), createTopicID());
 			}
 			// Load new topic IDs
-			groupMap.clear();
-			for (final Map.Entry<String, String> group : newGroupMap.entrySet())
-				groupMap.put(group.getKey(), group.getValue());
+			topicMap.clear();
+			for (final Map.Entry<String, String> entry : newGroupMap.entrySet())
+				topicMap.put(entry.getKey(), entry.getValue());
 			// Clear out users whose refresh has expired
 			final Collection<String> userList = new LinkedList<>(users.keySet());
 			for (final String user : userList)
 				if (users.get(user).isExpired())
 					users.remove(user);
-			// Selective subscribe
-			for (final Map.Entry<String, String> group : groupMap.entrySet())
-				try {
-					manager.addClientsToTopic(filterSessions(group.getKey()), group.getValue());
-				} catch (IOException e) {
-					// Should raise a warning, more robust solutions would retry
-					e.printStackTrace();
-				}
+			// Selective subscribe sessions to each topic in bulk
+			for (final Map.Entry<String, String> entry : topicMap.entrySet()) {
+				final Collection<UserSession> sessions = filterSessions(entry.getKey());
+				threadPool.submit(new AddClientsToTopicTask(sessions, entry.getValue()));
+			}
 		}
+	}
+	public void run() {
+		rotateGroups();
 	}
 	/**
 	 * Sends a ping to the specified group.
@@ -184,10 +195,10 @@ public final class PingBroadcastServer {
 	 * @throws PingFailedException if the request for ping fails
 	 */
 	private void sendPing(final String text, final String group) throws PingFailedException {
-		synchronized (groupMap) {
+		synchronized (topicMap) {
 			// Find matching topic
-			if (groupMap.containsKey(group)) {
-				final String groupCode = groupMap.get(group);
+			if (topicMap.containsKey(group)) {
+				final String groupCode = topicMap.get(group);
 				// Set up message options - 1 day expiry, high priority (allow device wake)
 				final FcmMessageOptions options = FcmMessageOptions.builder().setTimeToLive(
 					Duration.ofDays(1L)).setPriorityEnum(PriorityEnum.High).build();
@@ -212,15 +223,13 @@ public final class PingBroadcastServer {
 	 */
 	private void start() throws PingServerException {
 		// Create some dummy groups
-		synchronized (groupMap) {
-			groupMap.put("all", "");
-			groupMap.put("caps", "");
-			groupMap.put("supers", "");
+		synchronized (topicMap) {
+			topicMap.put("all", "");
+			topicMap.put("caps", "");
+			topicMap.put("supers", "");
 		}
-		// TODO On start up (or every X rotations):
-		//  The server needs to force drop all group memberships for each active account, to
-		//  avoid errors when the device ID hits the maximum number of topics
-		rotateGroups();
+		// Add rotation task - TODO move to downtime every day
+		threadPool.scheduleAtFixedRate(this, 0L, 1L, TimeUnit.DAYS);
 		try {
 			// Could use HttpsServer, but this is a demo anyways and it would cause certificate
 			// problems
@@ -241,8 +250,12 @@ public final class PingBroadcastServer {
 	 */
 	private void stop() throws PingServerException {
 		try {
+			// Stop the web server
 			if (server != null)
 				server.stop(2);
+			// Stop any outstanding tasks
+			threadPool.shutdown();
+			threadPool.awaitTermination(2L, TimeUnit.SECONDS);
 			client.close();
 		} catch (Exception e) {
 			throw new PingServerException("When shutting down", e);
@@ -255,18 +268,22 @@ public final class PingBroadcastServer {
 	 * @param session the session to update
 	 */
 	private void updateUser(final UserSession session) {
-		synchronized (groupMap) {
+		synchronized (topicMap) {
 			// https://iid.googleapis.com/iid/info/<device ID>
+			final Collection<UserSession> sessions = Collections.singletonList(session);
+			for (final String topic : session.getGroups())
+				threadPool.submit(new AddClientsToTopicTask(sessions, topic));
 		}
 	}
 
 	/**
-	 * Handles force refresh commands by cycling the topic IDs.
+	 * Handles force refresh commands by cycling the topic IDs. This command is meant for
+	 * debugging only.
 	 */
 	private final class ForceRefreshHandler implements HttpHandler {
 		public void handle(HttpExchange exchange) throws IOException {
 			rotateGroups();
-			HttpUtilities.sendResponse(exchange, "done\r\n");
+			HttpUtilities.sendResponse(exchange, "{\n\tresponse: \"done\"\n}\n");
 		}
 	}
 
@@ -282,7 +299,7 @@ public final class PingBroadcastServer {
 		public void handle(HttpExchange exchange) throws IOException {
 			// Obtain POST data if the method is POST
 			if ("POST".equals(exchange.getRequestMethod())) {
-				String response = "invalid";
+				String token = "";
 				final Map<String, String> postData = HttpUtilities.parseFormData(
 					HttpUtilities.getRequestBody(exchange));
 				// If this was a valid request
@@ -290,22 +307,25 @@ public final class PingBroadcastServer {
 						postData.containsKey("deviceID")) {
 					final String username = postData.get("username"), password =
 						postData.get("password"), deviceID = postData.get("deviceID");
+					// Create and store session information, destroying old session if it
+					// exists for that username
 					if (PASSWORD.equals(password) && username != null &&
-							groupMap.containsKey(username) && deviceID != null) {
-						// Create and store session information, destroying old session if it
-						// exists for that username
+							topicMap.containsKey(username) && deviceID != null) {
 						final Collection<String> groups = new LinkedList<>();
 						// Make groups the username
 						groups.add(username);
 						groups.add("all");
 						final UserSession session = new UserSession(deviceID, groups);
-						response = session.getChallengeToken();
+						token = session.getChallengeToken();
 						users.put(username, session);
 						// Should go on work queue (separate thread)
 						updateUser(session);
 					}
 				}
-				HttpUtilities.sendResponse(exchange, response + "\r\n");
+				// Create JSON response
+				final String response = "{\n\tvalid: " + (token.length() > 0) +
+					",\n\tchallenge: \"" + token + "\"\n}\n";
+				HttpUtilities.sendResponse(exchange, response);
 			} else
 				// Bad request!
 				exchange.sendResponseHeaders(400, 0);
@@ -330,7 +350,7 @@ public final class PingBroadcastServer {
 						group = getData.get("group");
 					if (group == null)
 						group = "all";
-					if (groupMap.containsKey(group))
+					if (topicMap.containsKey(group))
 						// Valid group, ping it out
 						try {
 							sendPing(pingText, group);
@@ -343,10 +363,96 @@ public final class PingBroadcastServer {
 						// Group name not found
 						response = "badGroup";
 				}
-				HttpUtilities.sendResponse(exchange, response + "\r\n");
+				HttpUtilities.sendResponse(exchange, "{\n\tresponse: \"" + response + "\"\n}\n");
 			} else
 				// Bad request!
 				exchange.sendResponseHeaders(400, 0);
+		}
+	}
+
+	/**
+	 * A task which adds or removes clients to/from topics. Intended to be run on the thread
+	 * pool, and schedules up to the specified retry limit if an error occurs.
+	 */
+	private static abstract class ClientChangeTask extends RetriableTask {
+		/**
+		 * The device IDs to be added.
+		 */
+		protected final Collection<UserSession> sessions;
+		/**
+		 * The topic to which the sessions will be (un)subscribed.
+		 */
+		protected final String topic;
+
+		/**
+		 * Creates a new client change task.
+		 *
+		 * @param sessions the clients to change
+		 * @param topic the target topic
+		 */
+		protected ClientChangeTask(final Collection<UserSession> sessions, final String topic) {
+			super(0);
+			if (sessions == null)
+				throw new IllegalArgumentException("sessions");
+			if (topic == null)
+				throw new IllegalArgumentException("topic");
+			this.sessions = sessions;
+			this.topic = topic;
+		}
+		protected ClientChangeTask(final ClientChangeTask original) {
+			super(original.getRetries() + 1);
+			sessions = original.sessions;
+			topic = original.topic;
+		}
+	}
+
+	/**
+	 * A task which adds the specified clients to a topic.
+	 */
+	private final class AddClientsToTopicTask extends ClientChangeTask {
+		public AddClientsToTopicTask(final Collection<UserSession> sessions,
+									 final String topic) {
+			super(sessions, topic);
+		}
+		private AddClientsToTopicTask(final ClientChangeTask original) {
+			super(original);
+		}
+		public void run() {
+			try {
+				// Perform the request
+				manager.addClientsToTopic(sessions, topic);
+			} catch (IOException e) {
+				e.printStackTrace();
+				// Retry if possible after the interval
+				if (getRetries() < RETRY_COUNT)
+					threadPool.schedule(new AddClientsToTopicTask(this), RETRY_INTERVAL,
+						TimeUnit.MILLISECONDS);
+			}
+		}
+	}
+
+	/**
+	 * A task which removes the specified clients from a topic.
+	 */
+	private final class RemoveClientsFromTopicTask extends ClientChangeTask {
+		public RemoveClientsFromTopicTask(final Collection<UserSession> sessions,
+										  final String topic) {
+			super(sessions, topic);
+		}
+		private RemoveClientsFromTopicTask(final ClientChangeTask original) {
+			super(original);
+		}
+		public void run() {
+			try {
+				// Perform the request
+				manager.removeClientsFromTopic(sessions, topic);
+			} catch (IOException e) {
+				e.printStackTrace();
+				// Retry if possible after the interval
+				if (getRetries() < RETRY_COUNT)
+					threadPool.schedule(new RemoveClientsFromTopicTask(this), RETRY_INTERVAL,
+						TimeUnit.MILLISECONDS);
+			}
 		}
 	}
 }

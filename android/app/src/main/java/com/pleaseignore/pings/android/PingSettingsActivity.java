@@ -127,7 +127,6 @@ public class PingSettingsActivity extends AppCompatPreferenceActivity implements
 		loadHeadersFromResource(R.xml.pref_headers, target);
 	}
 	protected void onCreate(Bundle savedInstanceState) {
-		AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_AUTO);
 		super.onCreate(savedInstanceState);
 		ensureGooglePlayAvailable(this, this);
 	}
