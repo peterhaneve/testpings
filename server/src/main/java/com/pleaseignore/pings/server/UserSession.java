@@ -88,4 +88,7 @@ public final class UserSession {
 	public void updateLogin() {
 		lastLogin = now();
 	}
+	public String toString() {
+		return "Device ID #" + deviceID;
+	}
 }

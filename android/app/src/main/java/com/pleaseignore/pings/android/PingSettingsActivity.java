@@ -4,6 +4,7 @@ import android.annotation.TargetApi;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.res.Configuration;
 import android.media.Ringtone;
 import android.media.RingtoneManager;
@@ -11,21 +12,19 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.preference.*;
-import android.support.v7.app.AppCompatDelegate;
 import android.text.TextUtils;
 import android.view.MenuItem;
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.GoogleApiAvailability;
 import com.google.android.gms.tasks.OnSuccessListener;
 import com.google.android.gms.tasks.Task;
-import com.google.firebase.messaging.FirebaseMessaging;
 
 import java.util.*;
 
 /**
  * The main user-visible activity of this class consists of only ping preferences.
  */
-public class PingSettingsActivity extends AppCompatPreferenceActivity implements
+public final class PingSettingsActivity extends AppCompatPreferenceActivity implements
 		OnSuccessListener<Void> {
 	/**
 	 * A preference value change listener that updates the preference's summary
@@ -117,51 +116,57 @@ public class PingSettingsActivity extends AppCompatPreferenceActivity implements
 	 * This method stops fragment injection in malicious applications.
 	 * Make sure to deny any unknown fragments here.
 	 */
+	@Override
 	protected boolean isValidFragment(String fragmentName) {
 		return PreferenceFragment.class.getName().equals(fragmentName) ||
 			GeneralPreferenceFragment.class.getName().equals(fragmentName) ||
 			NotificationPreferenceFragment.class.getName().equals(fragmentName);
 	}
+	@Override
 	@TargetApi(Build.VERSION_CODES.HONEYCOMB)
 	public void onBuildHeaders(List<Header> target) {
 		loadHeadersFromResource(R.xml.pref_headers, target);
 	}
+	@Override
 	protected void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
 		ensureGooglePlayAvailable(this, this);
 	}
+	@Override
 	public boolean onIsMultiPane() {
 		return isXLargeTablet(this);
 	}
+	@Override
 	protected void onResume() {
 		super.onResume();
 		ensureGooglePlayAvailable(this, null);
 	}
+	@Override
 	public void onSuccess(Void ignore) { }
 
 	/**
 	 * Shows only the general preferences, which contain login preferences and the about box.
 	 */
 	@TargetApi(Build.VERSION_CODES.HONEYCOMB)
-	public static class GeneralPreferenceFragment extends PreferenceFragment {
+	public static class GeneralPreferenceFragment extends PreferenceFragment implements
+			Preference.OnPreferenceClickListener {
+		public void onActivityResult(int requestCode, int resultCode, Intent data) {
+			if (requestCode == 0)
+				updateLogin();
+		}
+		@Override
 		public void onCreate(Bundle savedInstanceState) {
 			super.onCreate(savedInstanceState);
 			addPreferencesFromResource(R.xml.pref_general);
 			setHasOptionsMenu(true);
-			final Preference loginPref = findPreference("pref_login");
-			loginPref.setSummary("Not logged in");
-			loginPref.setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
-				public boolean onPreferenceClick(Preference preference) {
-					// Start a login activity
-					final Intent intent = new Intent(getActivity(), TESTLoginActivity.class);
-					startActivity(intent);
-					return true;
-				}
-			});
+			// When login is clicked, launch login activity
+			findPreference("pref_login").setOnPreferenceClickListener(this);
 			// Update summary of about to the current build version
 			findPreference("pref_about").setSummary(BuildConfig.APPLICATION_ID + " " +
 				BuildConfig.VERSION_NAME);
+			updateLogin();
 		}
+		@Override
 		public boolean onOptionsItemSelected(MenuItem item) {
 			int id = item.getItemId();
 			if (id == android.R.id.home) {
@@ -171,6 +176,46 @@ public class PingSettingsActivity extends AppCompatPreferenceActivity implements
 			}
 			return super.onOptionsItemSelected(item);
 		}
+		@Override
+		public boolean onPreferenceClick(Preference preference) {
+			final SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(
+				getActivity());
+			final String username = prefs.getString("pref_login", "");
+			if (username == null || username.length() < 1)
+				// Start a login activity and get notification when it is done
+				startActivityForResult(new Intent(getActivity(), TESTLoginActivity.class), 0);
+			else {
+				// Log off (confirmation?)
+				final SharedPreferences.Editor edit = prefs.edit();
+				edit.remove("pref_login");
+				edit.remove("pref_challenge");
+				edit.apply();
+			}
+			updateLogin();
+			return true;
+		}
+		@Override
+		public void onResume() {
+			super.onResume();
+			updateLogin();
+		}
+		/**
+		 * Updates the login status in the preference menu, showing the active username if any
+		 * or the no-login message if blank.
+		 */
+		private void updateLogin() {
+			final SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(
+				getActivity());
+			final Preference loginPref = findPreference("pref_login");
+			final String username = prefs.getString("pref_login", "");
+			if (username == null || username.length() < 1)
+				// Not yet logged in
+				loginPref.setSummary(getString(R.string.pref_nologin));
+			else
+				// Logged in
+				loginPref.setSummary(String.format(getString(R.string.pref_loggedin),
+					username));
+		}
 	}
 
 	/**
@@ -178,6 +223,7 @@ public class PingSettingsActivity extends AppCompatPreferenceActivity implements
 	 */
 	@TargetApi(Build.VERSION_CODES.HONEYCOMB)
 	public static class NotificationPreferenceFragment extends PreferenceFragment {
+		@Override
 		public void onCreate(Bundle savedInstanceState) {
 			super.onCreate(savedInstanceState);
 			addPreferencesFromResource(R.xml.pref_notification);
@@ -185,6 +231,7 @@ public class PingSettingsActivity extends AppCompatPreferenceActivity implements
 			// Bind the summaries of EditText/List/Dialog/Ringtone preferences to their values
 			bindPreferenceSummaryToValue(findPreference("notifications_new_ping_sound"));
 		}
+		@Override
 		public boolean onOptionsItemSelected(MenuItem item) {
 			final int id = item.getItemId();
 			if (id == android.R.id.home) {

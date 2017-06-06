@@ -4,15 +4,19 @@ import com.sun.net.httpserver.HttpExchange;
 import org.apache.http.HttpStatus;
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.CloseableHttpResponse;
+import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.util.EntityUtils;
 
-import java.io.*;
-import java.net.URLDecoder;
-import java.util.*;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * Contains utility functions used for HTTP handlers.
@@ -25,7 +29,11 @@ public final class HttpUtilities {
 	/**
 	 * The encoding to use for all requests.
 	 */
-	private static final String ENCODING = "UTF-8";
+	public static final String ENCODING = "UTF-8";
+	/**
+	 * Logs any unusual errors which occur in this class (most are passed upstream).
+	 */
+	private static final Logger LOGGER = Logger.getLogger(HttpUtilities.class.getName());
 	/**
 	 * Creates HTTP clients with the default timeout set.
 	 */
@@ -59,11 +67,10 @@ public final class HttpUtilities {
 		int len = -1;
 		// Calculate length
 		final String requestLen = exchange.getRequestHeaders().getFirst("Content-Length");
-		if (requestLen != null && requestLen.length() > 0) {
+		if (requestLen != null && requestLen.length() > 0)
 			try {
 				len = Integer.parseInt(requestLen);
 			} catch (NumberFormatException ignore) { }
-		}
 		if (len < 0)
 			// Default length if none given
 			len = BUFFER_LEN;
@@ -90,6 +97,43 @@ public final class HttpUtilities {
 		return new String(out.toByteArray(), ENCODING);
 	}
 	/**
+	 * Makes a GET HTTP request to the specified URL with the API key provided in the
+	 * Authorization header and the specified request body.
+	 *
+	 * @param url the URL to request
+	 * @param apiKey the application's API key
+	 * @return the response content, or null if the request failed
+	 * @throws IOException if an I/O error occurs
+	 */
+	public static String makeGetRequest(final String url, final String apiKey)
+			throws IOException {
+		String ret = null;
+		final CloseableHttpClient client = HTTP.build();
+		try {
+			final HttpGet request = new HttpGet(url);
+			// Add authorization header with API key
+			request.addHeader("Authorization", "key=" + apiKey);
+			final CloseableHttpResponse response = client.execute(request);
+			try {
+				final int code = response.getStatusLine().getStatusCode();
+				if (code == HttpStatus.SC_OK)
+					// Read body of request as a String
+					ret = EntityUtils.toString(response.getEntity());
+				else {
+					LOGGER.log(Level.INFO, "Server returned code " + code + " for request \"" +
+						url + "\"");
+					// Ensure request has been fully read so that it can be discarded
+					EntityUtils.consume(response.getEntity());
+				}
+			} finally {
+				response.close();
+			}
+		} finally {
+			client.close();
+		}
+		return ret;
+	}
+	/**
 	 * Makes a POST HTTP request to the specified URL with the API key provided in the
 	 * Authorization header and the specified request body.
 	 *
@@ -99,8 +143,8 @@ public final class HttpUtilities {
 	 * @return true if the request was OK, or false otherwise
 	 * @throws IOException if an I/O error occurs
 	 */
-	public static boolean makeRequest(final String url, final String apiKey, final String body)
-			throws IOException {
+	public static boolean makePostRequest(final String url, final String apiKey,
+										  final String body) throws IOException {
 		boolean ok;
 		final CloseableHttpClient client = HTTP.build();
 		try {
@@ -112,7 +156,12 @@ public final class HttpUtilities {
 				request.setEntity(new StringEntity(body));
 			final CloseableHttpResponse response = client.execute(request);
 			try {
-				ok = response.getStatusLine().getStatusCode() == HttpStatus.SC_OK;
+				final int code = response.getStatusLine().getStatusCode();
+				// Emit diagnostic if not 200
+				ok = code == HttpStatus.SC_OK;
+				if (!ok)
+					LOGGER.log(Level.INFO, "Server returned code " + code + " for request \"" +
+						url + "\"");
 				// Ensure request has been fully read so that it can be discarded
 				EntityUtils.consume(response.getEntity());
 			} finally {
@@ -124,31 +173,6 @@ public final class HttpUtilities {
 		return ok;
 	}
 	/**
-	 * Parses form data into key-value pairs.
-	 *
-	 * @param data the form data to parse
-	 * @return the resulting keys and values
-	 * @throws UnsupportedEncodingException if the configured encoding is invalid
-	 */
-	public static Map<String, String> parseFormData(final String data)
-			throws UnsupportedEncodingException {
-		if (data == null)
-			throw new IllegalArgumentException("data is null");
-		final String[] params = data.split("&");
-		final Map<String, String> ret = new HashMap<>(params.length * 2);
-		for (final String pair : params) {
-			// Split up into key-value
-			final int index = pair.indexOf("="), len = pair.length();
-			if (index > 0 && index < len - 1) {
-				// URL decode
-				final String key = URLDecoder.decode(pair.substring(0, index), ENCODING);
-				final String value = URLDecoder.decode(pair.substring(index + 1), ENCODING);
-				ret.put(key, value);
-			}
-		}
-		return ret;
-	}
-	/**
 	 * Sends the response to the user.
 	 *
 	 * @param exchange the HTTP request
@@ -156,7 +180,7 @@ public final class HttpUtilities {
 	 * @throws IOException if an I/O erorr occurs
 	 */
 	public static void sendResponse(final HttpExchange exchange, final String response)
-			throws IOException {
+		throws IOException {
 		final byte[] data = response.getBytes(HttpUtilities.ENCODING);
 		// Encode as UTF-8 and set length
 		exchange.getResponseHeaders().add("Content-Type", "application/json");

@@ -1,10 +1,11 @@
 package com.pleaseignore.pings.android;
 
+import android.content.SharedPreferences;
 import android.os.AsyncTask;
 import android.os.Bundle;
+import android.preference.PreferenceManager;
 import android.support.v7.app.ActionBar;
 import android.support.v7.app.AppCompatActivity;
-import android.support.v7.app.AppCompatDelegate;
 import android.text.TextUtils;
 import android.util.Log;
 import android.view.KeyEvent;
@@ -26,15 +27,20 @@ import java.io.IOException;
 /**
  * A login screen that offers login via TEST external credentials.
  */
-public final class TESTLoginActivity extends AppCompatActivity implements HttpRequestInitializer {
+public final class TESTLoginActivity extends AppCompatActivity implements
+		HttpRequestInitializer, TextView.OnEditorActionListener {
 	/**
 	 * HTTP transport to use while logging in.
 	 */
-	private static final HttpTransport HTTP_TRANSPORT = AndroidHttp.newCompatibleTransport();
+	public static final HttpTransport HTTP_TRANSPORT = AndroidHttp.newCompatibleTransport();
 	/**
 	 * Used to parse the JSON response from the server.
 	 */
-	private static final JsonFactory JSON_FACTORY = new AndroidJsonFactory();
+	public static final JsonFactory JSON_FACTORY = new AndroidJsonFactory();
+	/**
+	 * The timeout for login in milliseconds.
+	 */
+	public static final int TIMEOUT = 10000;
 
 	/**
 	 * Is this username potentially valid?
@@ -75,7 +81,7 @@ public final class TESTLoginActivity extends AppCompatActivity implements HttpRe
 	/**
 	 * Creates HTTP login requests.
 	 */
-	private HttpRequestFactory requestFactory;
+	private final HttpRequestFactory requestFactory;
 	/**
 	 * Username field in the UI.
 	 */
@@ -126,6 +132,27 @@ public final class TESTLoginActivity extends AppCompatActivity implements HttpRe
 			}
 		}
 	}
+	/**
+	 * Handles a potentially successful login, storing the information as necessary.
+	 *
+	 * @param status the login status from the server
+	 * @param userName the username used for login
+	 * @return the result of the login
+	 */
+	private LoginResult handleLogin(final LoginStatus status, final String userName) {
+		final LoginResult loggedIn = status.valid ? LoginResult.OK : LoginResult.PASSWORD;
+		if (status.valid && status.challenge != null) {
+			final SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(
+				this);
+			final SharedPreferences.Editor edit = prefs.edit();
+			// Store login information
+			edit.putString("pref_login", userName);
+			edit.putString("pref_challenge", status.challenge);
+			edit.apply();
+		}
+		return loggedIn;
+	}
+	@Override
 	public void initialize(HttpRequest request) {
 		// Server response parsed as JSON
 		request.setParser(new JsonObjectParser(JSON_FACTORY));
@@ -136,14 +163,13 @@ public final class TESTLoginActivity extends AppCompatActivity implements HttpRe
 	 *
 	 * @param userName the username
 	 * @param password the password
-	 * @return true if logged in, or false if invalid
+	 * @return the login status
 	 */
-	private boolean login(final String userName, final String password) {
-		// TODO Switch to TEST Auth
+	private LoginResult login(final String userName, final String password) {
 		// Use dummy host name from the strings to log in
 		final String dummyHost = getString(R.string.dummy_host), deviceID = FirebaseInstanceId.
 			getInstance().getToken();
-		boolean loggedIn = false;
+		LoginResult loggedIn = LoginResult.CONNECTION;
 		if (deviceID != null)
 			try {
 				// Create body
@@ -155,20 +181,23 @@ public final class TESTLoginActivity extends AppCompatActivity implements HttpRe
 				final GenericUrl loginURL = new GenericUrl("http://" + dummyHost + "/login");
 				final HttpRequest request = requestFactory.buildPostRequest(loginURL,
 					new UrlEncodedContent(content));
-				// Set 10 second timeout
-				request.setConnectTimeout(10000);
-				request.setReadTimeout(5000);
+				// Set timeout
+				request.setConnectTimeout(TIMEOUT);
+				request.setReadTimeout(TIMEOUT);
 				request.setNumberOfRetries(2);
-				// Read result value
+				// Read result value and report the right status
 				final HttpResponse response = request.execute();
 				final LoginStatus status = response.parseAs(LoginStatus.class);
-				loggedIn = status != null && status.valid;
+				if (status != null)
+					loggedIn = handleLogin(status, userName);
 			} catch (IOException e) {
-				Log.e("Login", "Error when logging in", e);
-				loggedIn = false;
+				// I/O error during login process
+				Log.w("Login", "Error when logging in", e);
+				loggedIn = LoginResult.CONNECTION;
 			}
 		return loggedIn;
 	}
+	@Override
 	protected void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
 		setContentView(R.layout.activity_testlogin);
@@ -176,17 +205,17 @@ public final class TESTLoginActivity extends AppCompatActivity implements HttpRe
 		// Set up the login form
 		userText = (AutoCompleteTextView)findViewById(R.id.login_user);
 		passwordText = (EditText)findViewById(R.id.login_pass);
-		passwordText.setOnEditorActionListener(new TextView.OnEditorActionListener() {
-			public boolean onEditorAction(TextView textView, int id, KeyEvent keyEvent) {
-				if (id == R.id.login || id == EditorInfo.IME_NULL) {
-					attemptLogin();
-					return true;
-				}
-				return false;
-			}
-		});
+		passwordText.setOnEditorActionListener(this);
 		loginView = findViewById(R.id.login_form);
 		progressView = findViewById(R.id.login_progress);
+	}
+	@Override
+	public boolean onEditorAction(TextView textView, int id, KeyEvent keyEvent) {
+		if (id == R.id.login || id == EditorInfo.IME_NULL) {
+			attemptLogin();
+			return true;
+		}
+		return false;
 	}
 	public void onLogin(final View source) {
 		attemptLogin();
@@ -209,28 +238,39 @@ public final class TESTLoginActivity extends AppCompatActivity implements HttpRe
 
 	/**
 	 * Performs TEST external authentication in the background.
-	 *
-	 * This stub to be filled in with actual TEST login details.
 	 */
-	public final class UserLoginTask extends AsyncTask<Void, Void, Boolean> {
+	private final class UserLoginTask extends AsyncTask<Void, Void, LoginResult> {
+		/**
+		 * The username used to log in.
+		 */
 		private final String userName;
+		/**
+		 * The password used to log in.
+		 */
 		private final String password;
 
 		protected UserLoginTask(String userName, String password) {
 			this.userName = userName;
 			this.password = password;
 		}
-		protected Boolean doInBackground(Void... params) {
+		@Override
+		protected LoginResult doInBackground(Void... params) {
 			return login(userName, password);
 		}
+		@Override
 		protected void onCancelled() {
 			authTask = null;
 			showProgress(false);
 		}
-		protected void onPostExecute(final Boolean success) {
+		@Override
+		protected void onPostExecute(final LoginResult result) {
 			authTask = null;
 			showProgress(false);
-			if (success)
+			if (result == null || result.equals(LoginResult.CONNECTION)) {
+				// Failed to connect
+				passwordText.setError(getString(R.string.error_login));
+				passwordText.requestFocus();
+			} else if (result.equals(LoginResult.OK))
 				finish();
 			else {
 				// Password is wrong
@@ -238,6 +278,19 @@ public final class TESTLoginActivity extends AppCompatActivity implements HttpRe
 				passwordText.requestFocus();
 			}
 		}
+	}
+
+	/**
+	 * Communicates the status of login back to the user login task so that the right error
+	 * message is displayed.
+	 */
+	private enum LoginResult {
+		// Login OK
+		OK,
+		// Bad username or password
+		PASSWORD,
+		// Could not connect/timed out
+		CONNECTION
 	}
 }
 

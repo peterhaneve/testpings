@@ -19,6 +19,7 @@ import android.view.ViewGroup;
 public abstract class AppCompatPreferenceActivity extends PreferenceActivity {
 	private AppCompatDelegate delegate;
 
+	@Override
 	public void addContentView(View view, ViewGroup.LayoutParams params) {
 		getDelegate().addContentView(view, params);
 	}
@@ -29,6 +30,7 @@ public abstract class AppCompatPreferenceActivity extends PreferenceActivity {
 		}
 		return delegate;
 	}
+	@Override
 	public MenuInflater getMenuInflater() {
 		return getDelegate().getMenuInflater();
 	}
@@ -38,44 +40,55 @@ public abstract class AppCompatPreferenceActivity extends PreferenceActivity {
 	public void setSupportActionBar(@Nullable Toolbar toolbar) {
 		getDelegate().setSupportActionBar(toolbar);
 	}
+	@Override
 	public void invalidateOptionsMenu() {
 		getDelegate().invalidateOptionsMenu();
 	}
+	@Override
 	public void onConfigurationChanged(Configuration newConfig) {
 		super.onConfigurationChanged(newConfig);
 		getDelegate().onConfigurationChanged(newConfig);
 	}
+	@Override
 	protected void onCreate(Bundle savedInstanceState) {
 		getDelegate().installViewFactory();
 		getDelegate().onCreate(savedInstanceState);
 		super.onCreate(savedInstanceState);
 	}
+	@Override
 	protected void onDestroy() {
 		super.onDestroy();
 		getDelegate().onDestroy();
 	}
+	@Override
 	protected void onPostCreate(Bundle savedInstanceState) {
 		super.onPostCreate(savedInstanceState);
 		getDelegate().onPostCreate(savedInstanceState);
 	}
+	@Override
 	protected void onPostResume() {
 		super.onPostResume();
 		getDelegate().onPostResume();
 	}
+	@Override
 	protected void onStop() {
 		super.onStop();
 		getDelegate().onStop();
 	}
+	@Override
 	protected void onTitleChanged(CharSequence title, int color) {
 		super.onTitleChanged(title, color);
 		getDelegate().setTitle(title);
 	}
+	@Override
 	public void setContentView(@LayoutRes int layoutResID) {
 		getDelegate().setContentView(layoutResID);
 	}
+	@Override
 	public void setContentView(View view) {
 		getDelegate().setContentView(view);
 	}
+	@Override
 	public void setContentView(View view, ViewGroup.LayoutParams params) {
 		getDelegate().setContentView(view, params);
 	}

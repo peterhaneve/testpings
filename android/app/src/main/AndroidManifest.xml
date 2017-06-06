@@ -2,11 +2,14 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
 		  package="com.pleaseignore.pings.android">
 
-	<uses-permission android:name="android.permission.GET_ACCOUNTS"/>
+	<!-- How else do we reach TEST services? -->
 	<uses-permission android:name="android.permission.INTERNET"/>
+	<!-- Keeps the server up to date if the device is rebooted -->
+	<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+	<!-- User can select vibration to occur upon ping -->
 	<uses-permission android:name="android.permission.VIBRATE"/>
-	<uses-permission android:name="android.permission.READ_PROFILE"/>
-	<uses-permission android:name="android.permission.READ_CONTACTS"/>
+	<!-- Wake the device up when a ping occurs -->
+	<uses-permission android:name="android.permission.WAKE_LOCK"/>
 
 	<application
 		android:allowBackup="true"
@@ -40,15 +43,46 @@
 			android:name=".PingDetailsActivity"
 			android:exported="false"
 			android:label="@string/ping_details">
+
+			<!-- Deliberately does not specify PingSettingsActivity as a parent so it can be closed easily -->
 		</activity>
 		<activity
 			android:name=".TESTLoginActivity"
+			android:exported="false"
 			android:label="@string/title_activity_testlogin"
 			android:parentActivityName=".PingSettingsActivity">
 			<meta-data
 				android:name="android.support.PARENT_ACTIVITY"
 				android:value="com.pleaseignore.pings.android.PingSettingsActivity"/>
 		</activity>
+
+		<receiver
+			android:name=".BootBroadcastReceiver"
+			android:enabled="true"
+			android:exported="true">
+			<intent-filter>
+				<!-- Receives boot broadcasts only -->
+				<action android:name="android.intent.action.BOOT_COMPLETED"/>
+			</intent-filter>
+		</receiver>
+
+		<service
+			android:name=".ChallengeAcceptedService"
+			android:enabled="true"
+			android:exported="false">
+		</service>
+
+		<service
+			android:name=".BootService"
+			android:enabled="true"
+			android:exported="false">
+		</service>
+
+		<receiver
+			android:name=".ChallengeBroadcastReceiver"
+			android:enabled="true"
+			android:exported="true">
+		</receiver>
 	</application>
 
 </manifest>

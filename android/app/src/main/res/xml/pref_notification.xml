@@ -5,14 +5,11 @@
 	<RingtonePreference android:dependency="notifications_new_ping"
 						android:key="notifications_new_ping_sound"
 						android:title="@string/pref_title_sound"
-						android:ringtoneType="notification"
+						android:ringtoneType="notification" android:showDefault="true"
+						android:showSilent="true"
 						android:defaultValue="content://settings/system/notification_sound"/>
 	<SwitchPreference android:dependency="notifications_new_ping"
 					  android:key="notifications_new_ping_vibrate"
 					  android:title="@string/pref_title_vibrate"
 					  android:defaultValue="true"/>
-	<SwitchPreference android:dependency="notifications_new_ping"
-					  android:key="notifications_new_ping_light"
-					  android:title="@string/pref_title_light"
-					  android:defaultValue="false"/>
 </PreferenceScreen>

@@ -19,16 +19,17 @@ import java.util.*;
 /**
  * A service which receives and notifies the user about pings.
  */
-public class PingReceiverService extends FirebaseMessagingService {
+public final class PingReceiverService extends FirebaseMessagingService {
 	/**
 	 * Key used in ping data to store the ping group name
 	 */
-	public static final String PING_KEY_GROUP = "group";
+	private static final String PING_KEY_GROUP = "group";
 	/**
 	 * Key used in ping data to store the full ping text
 	 */
 	public static final String PING_KEY_MESSAGE = "message";
 
+	@Override
 	public void onMessageReceived(final RemoteMessage message) {
 		final SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
 		// If pings enabled at all
@@ -91,8 +92,6 @@ public class PingReceiverService extends FirebaseMessagingService {
 		int defaults = 0;
 		if (prefs.getBoolean("notifications_new_ping_vibrate", false))
 			defaults |= Notification.DEFAULT_VIBRATE;
-		if (prefs.getBoolean("notifications_new_ping_light", false))
-			defaults |= Notification.DEFAULT_LIGHTS;
 		builder.setDefaults(defaults);
 		// All pings get their own notification (spam?), so use the sent time as the key
 		return builder.build();

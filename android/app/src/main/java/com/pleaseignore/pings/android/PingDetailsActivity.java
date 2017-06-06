@@ -3,23 +3,26 @@ package com.pleaseignore.pings.android;
 import android.content.Intent;
 import android.os.Bundle;
 import android.support.v7.app.AppCompatActivity;
-import android.support.v7.app.AppCompatDelegate;
 import android.widget.TextView;
 import com.google.android.gms.tasks.OnSuccessListener;
 
 /**
  * Displays the full text of a ping when launched.
  */
-public class PingDetailsActivity extends AppCompatActivity implements OnSuccessListener<Void> {
+public final class PingDetailsActivity extends AppCompatActivity implements
+		OnSuccessListener<Void> {
+	@Override
 	protected void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
 		setContentView(R.layout.activity_ping_details);
 		PingSettingsActivity.ensureGooglePlayAvailable(this, this);
 	}
+	@Override
 	protected void onResume() {
 		super.onResume();
 		PingSettingsActivity.ensureGooglePlayAvailable(this, null);
 	}
+	@Override
 	public void onSuccess(Void ignore) {
 		// Retrieve intent extras for ping information
 		final Intent intent = getIntent();

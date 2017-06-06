@@ -1,5 +1,6 @@
 package com.pleaseignore.pings.server;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
@@ -10,16 +11,20 @@ import de.bytefish.fcmjava.model.options.FcmMessageOptions;
 import de.bytefish.fcmjava.model.topics.Topic;
 import de.bytefish.fcmjava.requests.topic.TopicUnicastMessage;
 import de.bytefish.fcmjava.responses.TopicMessageResponse;
+import org.apache.http.NameValuePair;
+import org.apache.http.client.utils.URLEncodedUtils;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.InetSocketAddress;
-import java.time.Duration;
+import java.nio.charset.Charset;
 import java.util.*;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * Broadcasts pings to connected FCM clients. This is a stub server intended to prove the
@@ -28,6 +33,14 @@ import java.util.concurrent.TimeUnit;
  * recommended to rewrite as a module (in Java or otherwise) to the current ping/auth subsystem.
  */
 public final class PingBroadcastServer implements Runnable {
+	/**
+	 * Logs any unusual errors which occur in this class (most are passed upstream)
+	 */
+	private static final Logger LOGGER = Logger.getLogger(PingBroadcastServer.class.getName());
+	/**
+	 * Used to convert objects to and from JSON.
+	 */
+	private static final ObjectMapper MAPPER = new ObjectMapper();
 	/**
 	 * Key used in ping data to store the ping group name.
 	 */
@@ -81,7 +94,11 @@ public final class PingBroadcastServer implements Runnable {
 			} catch (IOException ignore) { }
 			server.stop();
 		} catch (PingServerException e) {
-			e.printStackTrace();
+			// Exception when starting/stopping server
+			LOGGER.log(Level.SEVERE, "Error when starting ping server", e);
+		} catch (Exception e) {
+			// Unknown exception!
+			LOGGER.log(Level.SEVERE, "Unhandled exception in ping server!", e);
 		}
 	}
 
@@ -153,20 +170,45 @@ public final class PingBroadcastServer implements Runnable {
 		return ret;
 	}
 	/**
+	 * Retrieves a list of topic codes to which the specified session should be subscribed.
+	 *
+	 * @param session the session to query
+	 * @return the FCM topic IDs to which this session should be subscribed
+	 */
+	private Set<String> getTopicCodes(final UserSession session) {
+		final Collection<String> groups = session.getGroups();
+		// Add to set for fast lookup by name
+		final Set<String> topics = new HashSet<String>(groups.size() * 2);
+		synchronized (topicMap) {
+			for (final String group : groups)
+				if (topicMap.containsKey(group)) {
+					final String topicCode = topicMap.get(group);
+					if (topicCode != null)
+						topics.add(topicCode);
+				}
+		}
+		return topics;
+	}
+	/**
 	 * Rotates all groups to new topic names, mass unsubscribes all known clients from the
 	 * old names, and resubscribes all non-expired users to the new names. Implicitly destroys
 	 * users which have expired.
 	 */
 	private void rotateGroups() {
 		synchronized (topicMap) {
+			LOGGER.log(Level.FINE, "Refreshing groups");
+			// Create a temporary list of the new topic IDs
 			final Map<String, String> newGroupMap = new HashMap<>(topicMap.size());
+			final Collection<UserSession> allUsers = users.values();
 			for (final Map.Entry<String, String> entry : topicMap.entrySet()) {
-				final String topic = entry.getValue();
+				final String topic = entry.getValue(), group = entry.getKey();
 				// Unsubscribe users from this topic even if expired
-				if (topic.length() > 0)
-					threadPool.submit(new RemoveClientsFromTopicTask(users.values(), topic));
+				if (topic.length() > 0 && allUsers.size() > 0)
+					threadPool.submit(new RemoveClientsFromTopicTask(allUsers, topic));
 				// Generate new topic IDs for the groups
-				newGroupMap.put(entry.getKey(), createTopicID());
+				final String topicID = createTopicID();
+				newGroupMap.put(group, topicID);
+				LOGGER.log(Level.FINE, "Group \"" + group + "\" => " + topicID);
 			}
 			// Load new topic IDs
 			topicMap.clear();
@@ -175,12 +217,15 @@ public final class PingBroadcastServer implements Runnable {
 			// Clear out users whose refresh has expired
 			final Collection<String> userList = new LinkedList<>(users.keySet());
 			for (final String user : userList)
-				if (users.get(user).isExpired())
+				if (users.get(user).isExpired()) {
 					users.remove(user);
+					LOGGER.log(Level.FINE, "Expired user \"" + user + "\"");
+				}
 			// Selective subscribe sessions to each topic in bulk
 			for (final Map.Entry<String, String> entry : topicMap.entrySet()) {
 				final Collection<UserSession> sessions = filterSessions(entry.getKey());
-				threadPool.submit(new AddClientsToTopicTask(sessions, entry.getValue()));
+				if (sessions.size() > 0)
+					threadPool.submit(new AddClientsToTopicTask(sessions, entry.getValue()));
 			}
 		}
 	}
@@ -198,17 +243,17 @@ public final class PingBroadcastServer implements Runnable {
 		synchronized (topicMap) {
 			// Find matching topic
 			if (topicMap.containsKey(group)) {
-				final String groupCode = topicMap.get(group);
-				// Set up message options - 1 day expiry, high priority (allow device wake)
-				final FcmMessageOptions options = FcmMessageOptions.builder().setTimeToLive(
-					Duration.ofDays(1L)).setPriorityEnum(PriorityEnum.High).build();
+				final String topicCode = topicMap.get(group);
+				// Set up message options - high priority (allow device wake)
+				final FcmMessageOptions options = FcmMessageOptions.builder().
+					setPriorityEnum(PriorityEnum.High).build();
 				// Create message payload
 				final Map<String, Object> payload = new HashMap<String, Object>(8);
 				payload.put(PING_KEY_GROUP, group);
 				payload.put(PING_KEY_MESSAGE, text);
 				// Send to the randomized group ID
 				final TopicUnicastMessage message = new TopicUnicastMessage(options,
-					new Topic(groupCode), payload);
+					new Topic(topicCode), payload);
 				final TopicMessageResponse response = client.send(message);
 				if (response.getErrorCode() != null)
 					throw new PingFailedException("Response error: " + response.getErrorCode());
@@ -237,7 +282,7 @@ public final class PingBroadcastServer implements Runnable {
 			server.createContext("/forceRefresh", new ForceRefreshHandler());
 			server.createContext("/login", new LoginHandler());
 			server.createContext("/ping", new PingHandler());
-			// TODO "refresh"
+			server.createContext("/refresh", new ChallengeHandler());
 			server.start();
 		} catch (IOException e) {
 			throw new PingServerException("When starting ping server", e);
@@ -261,18 +306,43 @@ public final class PingBroadcastServer implements Runnable {
 			throw new PingServerException("When shutting down", e);
 		}
 	}
+
 	/**
-	 * Updates a user's subscriptions when they log on, unsubscribing from old topics and adding
-	 * the latest and greatest IDs.
-	 *
-	 * @param session the session to update
+	 * Handles challenge responses from clients and refreshes their login timeout if they do
+	 * so successfully. If the challenge is wrong, do not expire the user immediately, or else
+	 * there is an easy avenue for a DoS attack.
 	 */
-	private void updateUser(final UserSession session) {
-		synchronized (topicMap) {
-			// https://iid.googleapis.com/iid/info/<device ID>
-			final Collection<UserSession> sessions = Collections.singletonList(session);
-			for (final String topic : session.getGroups())
-				threadPool.submit(new AddClientsToTopicTask(sessions, topic));
+	private final class ChallengeHandler implements HttpHandler {
+		public void handle(HttpExchange exchange) throws IOException {
+			if ("POST".equals(exchange.getRequestMethod())) {
+				// Obtain POST data if the method is POST
+				String token = "", username = null, challenge = null;
+				final List<NameValuePair> postData = URLEncodedUtils.parse(HttpUtilities.
+					getRequestBody(exchange), Charset.forName(HttpUtilities.ENCODING));
+				for (final NameValuePair param : postData) {
+					final String key = param.getName(), value = param.getValue();
+					// Extract parameters of the login request
+					if (key.equals("username"))
+						username = value;
+					else if (key.equals("challenge"))
+						challenge = value;
+				}
+				if (username != null && challenge != null)
+					synchronized (topicMap) {
+						// Verify the challenge; if good, give them another lease on life
+						final UserSession session = users.get(username);
+						final String correct = session.getChallengeToken();
+						if (!session.isExpired() && correct.equals(challenge)) {
+							session.updateLogin();
+							LOGGER.log(Level.FINE, "Renewed user \"" + username + "\"");
+							token = challenge;
+						}
+					}
+				HttpUtilities.sendResponse(exchange, MAPPER.writeValueAsString(new
+					LoginResponse(token)));
+			} else
+				// Bad request!
+				exchange.sendResponseHeaders(400, 0);
 		}
 	}
 
@@ -283,7 +353,8 @@ public final class PingBroadcastServer implements Runnable {
 	private final class ForceRefreshHandler implements HttpHandler {
 		public void handle(HttpExchange exchange) throws IOException {
 			rotateGroups();
-			HttpUtilities.sendResponse(exchange, "{\n\tresponse: \"done\"\n}\n");
+			HttpUtilities.sendResponse(exchange, MAPPER.writeValueAsString(new StatusResponse(
+				"done")));
 		}
 	}
 
@@ -297,35 +368,39 @@ public final class PingBroadcastServer implements Runnable {
 		private static final String PASSWORD = "password";
 
 		public void handle(HttpExchange exchange) throws IOException {
-			// Obtain POST data if the method is POST
 			if ("POST".equals(exchange.getRequestMethod())) {
-				String token = "";
-				final Map<String, String> postData = HttpUtilities.parseFormData(
-					HttpUtilities.getRequestBody(exchange));
-				// If this was a valid request
-				if (postData.containsKey("username") && postData.containsKey("password") &&
-						postData.containsKey("deviceID")) {
-					final String username = postData.get("username"), password =
-						postData.get("password"), deviceID = postData.get("deviceID");
-					// Create and store session information, destroying old session if it
-					// exists for that username
-					if (PASSWORD.equals(password) && username != null &&
-							topicMap.containsKey(username) && deviceID != null) {
-						final Collection<String> groups = new LinkedList<>();
-						// Make groups the username
-						groups.add(username);
-						groups.add("all");
-						final UserSession session = new UserSession(deviceID, groups);
-						token = session.getChallengeToken();
-						users.put(username, session);
-						// Should go on work queue (separate thread)
-						updateUser(session);
-					}
+				// Obtain POST data if the method is POST
+				String token = "", username = null, password = null, deviceID = null;
+				final List<NameValuePair> postData = URLEncodedUtils.parse(HttpUtilities.
+					getRequestBody(exchange), Charset.forName(HttpUtilities.ENCODING));
+				for (final NameValuePair param : postData) {
+					final String key = param.getName(), value = param.getValue();
+					// Extract parameters of the login request
+					if (key.equals("username"))
+						username = value;
+					else if (key.equals("password"))
+						password = value;
+					else if (key.equals("deviceID"))
+						deviceID = value;
 				}
-				// Create JSON response
-				final String response = "{\n\tvalid: " + (token.length() > 0) +
-					",\n\tchallenge: \"" + token + "\"\n}\n";
-				HttpUtilities.sendResponse(exchange, response);
+				// If username and password are valid
+				if (PASSWORD.equals(password) && username != null && topicMap.containsKey(
+						username) && deviceID != null && !username.equals("all")) {
+					final Collection<String> groups = new LinkedList<>();
+					// TODO Subscribe to group matching username
+					groups.add(username);
+					groups.add("all");
+					final UserSession session = new UserSession(deviceID, groups);
+					token = session.getChallengeToken();
+					synchronized (topicMap) {
+						users.put(username, session);
+					}
+					LOGGER.log(Level.FINE, "User \"" + username + "\" logged in");
+					// Get the user integrated on a separate task
+					threadPool.submit(new UpdateUserTask(session));
+				}
+				HttpUtilities.sendResponse(exchange, MAPPER.writeValueAsString(new
+					LoginResponse(token)));
 			} else
 				// Bad request!
 				exchange.sendResponseHeaders(400, 0);
@@ -338,19 +413,27 @@ public final class PingBroadcastServer implements Runnable {
 	private final class PingHandler implements HttpHandler {
 		public void handle(HttpExchange exchange) throws IOException {
 			if ("GET".equals(exchange.getRequestMethod())) {
-				String response = "invalid", group = null, pingText;
-				final Map<String, String> getData = HttpUtilities.parseFormData(
-					exchange.getRequestURI().getQuery());
-				if (getData.containsKey("body")) {
-					pingText = getData.get("body");
-					if (pingText == null)
-						pingText = "";
+				String response = "invalid", group = null, pingText = null;
+				// The URL should be 7-bit safe anyways
+				final List<NameValuePair> getData = URLEncodedUtils.parse(exchange.
+					getRequestURI().getQuery(), Charset.forName(HttpUtilities.ENCODING));
+				for (final NameValuePair param : getData) {
+					final String key = param.getName(), value = param.getValue();
+					// Extract parameters of the ping
+					if (key.equals("body"))
+						pingText = value;
+					else if (key.equals("group"))
+						group = value;
+				}
+				if (pingText != null && pingText.length() > 1) {
+					final boolean ok;
 					// Default group to "all"
-					if (getData.containsKey("group"))
-						group = getData.get("group");
-					if (group == null)
+					if (group == null || group.length() < 1)
 						group = "all";
-					if (topicMap.containsKey(group))
+					synchronized (topicMap) {
+						ok = topicMap.containsKey(group);
+					}
+					if (ok)
 						// Valid group, ping it out
 						try {
 							sendPing(pingText, group);
@@ -363,10 +446,75 @@ public final class PingBroadcastServer implements Runnable {
 						// Group name not found
 						response = "badGroup";
 				}
-				HttpUtilities.sendResponse(exchange, "{\n\tresponse: \"" + response + "\"\n}\n");
+				HttpUtilities.sendResponse(exchange, MAPPER.writeValueAsString(new
+					StatusResponse(response)));
 			} else
 				// Bad request!
 				exchange.sendResponseHeaders(400, 0);
+		}
+	}
+
+	/**
+	 * A task which unsubscribes the user from all of its current topics, then resubscribes it
+	 * to the appropriate topics that it owns.
+	 */
+	private final class UpdateUserTask extends RetriableTask {
+		/**
+		 * The client to update.
+		 */
+		private final UserSession session;
+
+		public UpdateUserTask(final UserSession session) {
+			super(0);
+			if (session == null)
+				throw new IllegalArgumentException("session");
+			this.session = session;
+		}
+		private UpdateUserTask(final UpdateUserTask original) {
+			super(original.getRetries() + 1);
+			session = original.session;
+		}
+		public void run() {
+			boolean ok = false;
+			final Collection<UserSession> sessions = Collections.singletonList(session);
+			final Set<String> shouldHave = getTopicCodes(session);
+			// Get list of current subscriptions
+			try {
+				final Collection<String> topics = manager.listTopics(session.getDeviceID());
+				if (topics != null) {
+					// If null, then request failed and needs to be retried (could be empty)
+					final Collection<String> toRemove = new LinkedList<>(), toAdd =
+						new HashSet<>(shouldHave);
+					LOGGER.log(Level.FINE, "Current topics: " + topics.toString());
+					for (final String topic : topics) {
+						if (shouldHave.contains(topic))
+							// If topic should exist and is already subscribed, do not resub
+							toAdd.remove(topic);
+						else
+							// Add all groups that it should not have to remove list
+							toRemove.add(topic);
+					}
+					ok = true;
+					LOGGER.log(Level.FINE, "Adding to topics: " + toAdd.toString());
+					LOGGER.log(Level.FINE, "Removing from topics: " + toRemove.toString());
+					// Remove from old groups - if some of these fail, then the task as a whole
+					// will be retried, and the ones which did succeed will be reflected in the
+					// new session list to avoid redoing work
+					for (final String topic : toRemove)
+						ok = ok && manager.removeClientsFromTopic(sessions, topic);
+					// Add to new ones
+					for (final String topic : toAdd)
+						ok = ok && manager.addClientsToTopic(sessions, topic);
+				}
+			} catch (IOException e) {
+				LOGGER.log(Level.INFO, "Error updating user \"" + session + "\" (retrying)",
+					e);
+			}
+			final int n = getRetries();
+			// Retry if possible after the interval
+			if (!ok && n < RETRY_COUNT)
+				threadPool.schedule(new UpdateUserTask(this), RETRY_INTERVAL * n,
+					TimeUnit.MILLISECONDS);
 		}
 	}
 
@@ -418,16 +566,19 @@ public final class PingBroadcastServer implements Runnable {
 			super(original);
 		}
 		public void run() {
+			boolean ok = false;
 			try {
 				// Perform the request
-				manager.addClientsToTopic(sessions, topic);
+				ok = manager.addClientsToTopic(sessions, topic);
 			} catch (IOException e) {
-				e.printStackTrace();
-				// Retry if possible after the interval
-				if (getRetries() < RETRY_COUNT)
-					threadPool.schedule(new AddClientsToTopicTask(this), RETRY_INTERVAL,
-						TimeUnit.MILLISECONDS);
+				LOGGER.log(Level.INFO, "Error when adding users to topic \"" + topic +
+					"\" (retrying)", e);
 			}
+			final int n = getRetries();
+			// Retry if possible after the interval
+			if (!ok && getRetries() < RETRY_COUNT)
+				threadPool.schedule(new AddClientsToTopicTask(this), RETRY_INTERVAL * n,
+					TimeUnit.MILLISECONDS);
 		}
 	}
 
@@ -443,16 +594,19 @@ public final class PingBroadcastServer implements Runnable {
 			super(original);
 		}
 		public void run() {
+			boolean ok = false;
 			try {
 				// Perform the request
-				manager.removeClientsFromTopic(sessions, topic);
+				ok = manager.removeClientsFromTopic(sessions, topic);
 			} catch (IOException e) {
-				e.printStackTrace();
-				// Retry if possible after the interval
-				if (getRetries() < RETRY_COUNT)
-					threadPool.schedule(new RemoveClientsFromTopicTask(this), RETRY_INTERVAL,
-						TimeUnit.MILLISECONDS);
+				LOGGER.log(Level.INFO, "Error when removing users from topic \"" + topic +
+					"\" (retrying)", e);
 			}
+			final int n = getRetries();
+			// Retry if possible after the interval
+			if (!ok && n < RETRY_COUNT)
+				threadPool.schedule(new RemoveClientsFromTopicTask(this), RETRY_INTERVAL * n,
+					TimeUnit.MILLISECONDS);
 		}
 	}
 }
