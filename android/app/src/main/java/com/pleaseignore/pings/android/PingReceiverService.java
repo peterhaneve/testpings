@@ -4,16 +4,17 @@ import android.app.Notification;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.Uri;
 import android.preference.PreferenceManager;
 import android.support.v7.app.NotificationCompat;
 import android.text.TextUtils;
+import android.text.format.DateFormat;
 import com.google.firebase.messaging.FirebaseMessagingService;
 import com.google.firebase.messaging.RemoteMessage;
 
-import java.text.*;
 import java.util.*;
 
 /**
@@ -28,6 +29,35 @@ public final class PingReceiverService extends FirebaseMessagingService {
 	 * Key used in ping data to store the full ping text
 	 */
 	public static final String PING_KEY_MESSAGE = "message";
+
+	/**
+	 * Creates a notification with the specified title and text. No intent is yet associated.
+	 *
+	 * @param context the context for the notification
+	 * @param title the notification title
+	 * @param text the notification text
+	 * @return the notification (not yet built)
+	 */
+	public static NotificationCompat.Builder createNotification(final Context context,
+			final String title, final String text) {
+		final SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+		final NotificationCompat.Builder builder = new NotificationCompat.Builder(context);
+		// Create ping title
+		builder.setContentTitle(title);
+		builder.setContentText(text).setTicker(text);
+		builder.setSmallIcon(R.mipmap.ic_launcher);
+		// TEST cares about its pings!
+		builder.setAutoCancel(true).setPriority(Notification.PRIORITY_HIGH);
+		// Set up sound if not silent, and vibrate if necessary
+		final String sound = prefs.getString("notifications_new_ping_sound", "");
+		if (!TextUtils.isEmpty(sound))
+			builder.setSound(Uri.parse(sound));
+		int defaults = 0;
+		if (prefs.getBoolean("notifications_new_ping_vibrate", false))
+			defaults |= Notification.DEFAULT_VIBRATE;
+		builder.setDefaults(defaults);
+		return builder;
+	}
 
 	@Override
 	public void onMessageReceived(final RemoteMessage message) {
@@ -66,18 +96,13 @@ public final class PingReceiverService extends FirebaseMessagingService {
 										  final String pingText) {
 		final SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
 		// Use local format for date and time
-		final DateFormat localDate = android.text.format.DateFormat.getDateFormat(this);
-		final DateFormat localTime = android.text.format.DateFormat.getTimeFormat(this);
-		final NotificationCompat.Builder builder = new NotificationCompat.Builder(this);
+		final java.text.DateFormat localDate = DateFormat.getDateFormat(this), localTime =
+			DateFormat.getTimeFormat(this);
 		// Create ping title
 		final String dateString = localDate.format(dateOf), timeString = localTime.
 			format(dateOf), title = getString(R.string.ping_title, group, dateString,
 			timeString);
-		builder.setContentTitle(title);
-		builder.setContentText(pingText).setTicker(pingText);
-		builder.setSmallIcon(R.mipmap.ic_launcher);
-		// TEST cares about its pings!
-		builder.setAutoCancel(true).setPriority(Notification.PRIORITY_HIGH);
+		final NotificationCompat.Builder builder = createNotification(this, title, pingText);
 		// Allow launching ping details activity on click
 		final Intent detailsIntent = new Intent(this, PingDetailsActivity.class);
 		detailsIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -85,14 +110,6 @@ public final class PingReceiverService extends FirebaseMessagingService {
 		final PendingIntent launchPingDetails = PendingIntent.getActivity(this, 0,
 			detailsIntent, PendingIntent.FLAG_CANCEL_CURRENT);
 		builder.setContentIntent(launchPingDetails);
-		// Set up sound if not silent, and vibrate if necessary
-		final String sound = prefs.getString("notifications_new_ping_sound", "");
-		if (!TextUtils.isEmpty(sound))
-			builder.setSound(Uri.parse(sound));
-		int defaults = 0;
-		if (prefs.getBoolean("notifications_new_ping_vibrate", false))
-			defaults |= Notification.DEFAULT_VIBRATE;
-		builder.setDefaults(defaults);
 		// All pings get their own notification (spam?), so use the sent time as the key
 		return builder.build();
 	}

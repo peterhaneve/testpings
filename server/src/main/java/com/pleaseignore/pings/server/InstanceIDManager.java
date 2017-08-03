@@ -77,8 +77,8 @@ public final class InstanceIDManager {
 	 * @throws IOException if an I/O error occurs during the change
 	 * @return true if the request succeeded, or false if it failed
 	 */
-	public boolean addClientsToTopic(final Collection<UserSession> clients, final String topicID)
-			throws IOException {
+	public boolean addClientsToTopic(final Collection<UserSession> clients,
+									 final String topicID) throws IOException {
 		return HttpUtilities.makePostRequest(BASE_URL + "v1:batchAdd", apiKey,
 			createRequestBody(clients, topicID));
 	}

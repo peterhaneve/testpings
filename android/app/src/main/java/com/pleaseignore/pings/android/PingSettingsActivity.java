@@ -30,8 +30,8 @@ public final class PingSettingsActivity extends AppCompatPreferenceActivity impl
 	 * A preference value change listener that updates the preference's summary
 	 * to reflect its new value.
 	 */
-	private static Preference.OnPreferenceChangeListener onChangeListener = new Preference.
-			OnPreferenceChangeListener() {
+	private static final Preference.OnPreferenceChangeListener onChangeListener =
+			new Preference.OnPreferenceChangeListener() {
 		@Override
 		public boolean onPreferenceChange(Preference preference, Object value) {
 			final String stringValue = value.toString();

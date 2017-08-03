@@ -28,7 +28,7 @@ import java.io.IOException;
  * A login screen that offers login via TEST external credentials.
  */
 public final class TESTLoginActivity extends AppCompatActivity implements
-		HttpRequestInitializer, TextView.OnEditorActionListener {
+		HttpRequestInitializer, TextView.OnEditorActionListener, View.OnClickListener {
 	/**
 	 * HTTP transport to use while logging in.
 	 */
@@ -198,6 +198,10 @@ public final class TESTLoginActivity extends AppCompatActivity implements
 		return loggedIn;
 	}
 	@Override
+	public void onClick(final View source) {
+		attemptLogin();
+	}
+	@Override
 	protected void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
 		setContentView(R.layout.activity_testlogin);
@@ -216,9 +220,6 @@ public final class TESTLoginActivity extends AppCompatActivity implements
 			return true;
 		}
 		return false;
-	}
-	public void onLogin(final View source) {
-		attemptLogin();
 	}
 	/**
 	 * Set up the {@link android.app.ActionBar}, if the API is available.

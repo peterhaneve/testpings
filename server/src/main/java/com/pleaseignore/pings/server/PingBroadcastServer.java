@@ -376,12 +376,19 @@ public final class PingBroadcastServer implements Runnable {
 				for (final NameValuePair param : postData) {
 					final String key = param.getName(), value = param.getValue();
 					// Extract parameters of the login request
-					if (key.equals("username"))
+					switch (key) {
+					case "username":
 						username = value;
-					else if (key.equals("password"))
+						break;
+					case "password":
 						password = value;
-					else if (key.equals("deviceID"))
+						break;
+					case "deviceID":
 						deviceID = value;
+						break;
+					default:
+						break;
+					}
 				}
 				// If username and password are valid
 				if (PASSWORD.equals(password) && username != null && topicMap.containsKey(
@@ -420,10 +427,16 @@ public final class PingBroadcastServer implements Runnable {
 				for (final NameValuePair param : getData) {
 					final String key = param.getName(), value = param.getValue();
 					// Extract parameters of the ping
-					if (key.equals("body"))
+					switch (key) {
+					case "body":
 						pingText = value;
-					else if (key.equals("group"))
+						break;
+					case "group":
 						group = value;
+						break;
+					default:
+						break;
+					}
 				}
 				if (pingText != null && pingText.length() > 1) {
 					final boolean ok;

@@ -11,14 +11,10 @@
 	<!-- Wake the device up when a ping occurs -->
 	<uses-permission android:name="android.permission.WAKE_LOCK"/>
 
-	<application
-		android:allowBackup="true"
-		android:icon="@mipmap/ic_launcher"
-		android:label="@string/app_name"
-		android:theme="@style/Theme.AppCompat.DayNight">
-		<activity
-			android:name=".PingSettingsActivity"
-			android:label="@string/app_name">
+	<application android:allowBackup="true" android:icon="@mipmap/ic_launcher"
+				 android:label="@string/app_name"
+				 android:theme="@style/Theme.AppCompat.DayNight">
+		<activity android:name=".PingSettingsActivity" android:label="@string/app_name">
 			<intent-filter>
 				<action android:name="android.intent.action.MAIN"/>
 
@@ -26,10 +22,8 @@
 			</intent-filter>
 		</activity>
 
-		<service
-			android:name=".PingReceiverService"
-			android:enabled="true"
-			android:exported="false">
+		<service android:name=".PingReceiverService" android:enabled="true"
+				 android:exported="false">
 			<meta-data
 				android:name="com.google.firebase.messaging.default_notification_icon"
 				android:resource="@mipmap/ic_launcher"/>
@@ -39,49 +33,32 @@
 			</intent-filter>
 		</service>
 
-		<activity
-			android:name=".PingDetailsActivity"
-			android:exported="false"
-			android:label="@string/ping_details">
-
+		<activity android:name=".PingDetailsActivity" android:exported="false"
+				  android:label="@string/ping_details">
 			<!-- Deliberately does not specify PingSettingsActivity as a parent so it can be closed easily -->
 		</activity>
-		<activity
-			android:name=".TESTLoginActivity"
-			android:exported="false"
-			android:label="@string/title_activity_testlogin"
-			android:parentActivityName=".PingSettingsActivity">
+		<activity android:name=".TESTLoginActivity" android:exported="false"
+				  android:label="@string/title_activity_testlogin"
+				  android:parentActivityName=".PingSettingsActivity">
 			<meta-data
 				android:name="android.support.PARENT_ACTIVITY"
 				android:value="com.pleaseignore.pings.android.PingSettingsActivity"/>
 		</activity>
 
-		<receiver
-			android:name=".BootBroadcastReceiver"
-			android:enabled="true"
-			android:exported="true">
+		<receiver android:name=".BootBroadcastReceiver" android:enabled="true"
+				  android:exported="true">
 			<intent-filter>
 				<!-- Receives boot broadcasts only -->
 				<action android:name="android.intent.action.BOOT_COMPLETED"/>
 			</intent-filter>
 		</receiver>
 
-		<service
-			android:name=".ChallengeAcceptedService"
-			android:enabled="true"
-			android:exported="false">
+		<service android:name=".ChallengeAcceptedService" android:enabled="true"
+				 android:exported="false">
 		</service>
 
-		<service
-			android:name=".BootService"
-			android:enabled="true"
-			android:exported="false">
-		</service>
-
-		<receiver
-			android:name=".ChallengeBroadcastReceiver"
-			android:enabled="true"
-			android:exported="true">
+		<receiver android:name=".ChallengeBroadcastReceiver" android:enabled="true"
+				  android:exported="false">
 		</receiver>
 	</application>
 

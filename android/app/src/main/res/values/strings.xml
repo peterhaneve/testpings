@@ -1,13 +1,11 @@
 <resources>
 	<string name="app_name">TEST Pings</string>
-	<!-- Authentication page -->
-	<string name="auth_title">Login to EVE Online</string>
 	<!-- Used for displaying pings -->
 	<string name="ping_details">Ping Details</string>
-	<string name="ping_title" formatted="false">Sent to %s on %s %s</string>
+	<string name="ping_title">Sent to %1$s on %2$s %3$s</string>
 	<string name="ping_empty">[No ping text]</string>
 	<string name="ping_all">all</string>
-	<string name="ping_open">Open</string>
+	<string name="ping_expired">Login Expired</string>
 	<!-- General Settings -->
 	<string name="pref_header_general">General</string>
 	<string name="pref_title_about">About</string>
@@ -21,7 +19,7 @@
 	<string name="pref_title_light">Light</string>
 	<string name="title_activity_testlogin">TEST External Auth</string>
 	<string name="pref_nologin">Not logged in</string>
-	<string name="pref_loggedin" formatted="false">Logged in as %s</string>
+	<string name="pref_loggedin">Logged in as %1$s</string>
 	<!-- Login page -->
 	<string name="prompt_username">Username</string>
 	<string name="prompt_password">Password</string>
@@ -32,7 +30,5 @@
 	<string name="error_login">Could not connect to login server</string>
 	<string name="error_incorrect_password">Incorrect username or password</string>
 	<string name="error_field_required">This field is required</string>
-	<string name="permission_rationale">"Contacts permissions are needed for providing email
-		completions."
-	</string>
+	<string name="error_expired">TEST external credentials have expired, click to log in again.</string>
 </resources>

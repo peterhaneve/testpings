@@ -1,13 +1,16 @@
 package com.pleaseignore.pings.android;
 
-import android.app.IntentService;
+import android.app.*;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
+import android.net.Uri;
 import android.preference.PreferenceManager;
 import android.support.v4.content.WakefulBroadcastReceiver;
+import android.support.v7.app.NotificationCompat;
+import android.text.TextUtils;
 import android.util.Log;
 import com.google.api.client.http.*;
 import com.google.api.client.json.JsonObjectParser;
@@ -80,6 +83,7 @@ public final class ChallengeAcceptedService extends IntentService implements
 						edit.remove("pref_challenge");
 						Log.i("Challenge", "Challenge no longer valid, logging out");
 						edit.apply();
+						notifyExpired();
 					}
 			} catch (IOException e) {
 				// Error, log it but do not annoy the user
@@ -90,6 +94,24 @@ public final class ChallengeAcceptedService extends IntentService implements
 	public void initialize(HttpRequest request) {
 		// Server response parsed as JSON
 		request.setParser(new JsonObjectParser(TESTLoginActivity.JSON_FACTORY));
+	}
+	/**
+	 * Notifies the user that the challenge token has expired.
+	 */
+	private void notifyExpired() {
+		final SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+		final NotificationCompat.Builder builder = PingReceiverService.createNotification(this,
+			getString(R.string.ping_expired), getString(R.string.error_expired));
+		// Allow launching ping settings activity on click
+		final Intent detailsIntent = new Intent(this, PingSettingsActivity.class);
+		detailsIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+		final PendingIntent launchPingDetails = PendingIntent.getActivity(this, 0,
+			detailsIntent, PendingIntent.FLAG_CANCEL_CURRENT);
+		builder.setContentIntent(launchPingDetails);
+		// Retrieve system notification manager to show popup
+		final NotificationManager manager = (NotificationManager)getSystemService(
+			Service.NOTIFICATION_SERVICE);
+		manager.notify(0, builder.build());
 	}
 	@Override
 	protected void onHandleIntent(Intent intent) {
