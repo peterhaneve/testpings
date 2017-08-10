@@ -1,5 +1,27 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
+  <component name="ArtifactManager">
+    <artifact name="server">
+      <output-path>$PROJECT_DIR$/out/artifacts</output-path>
+      <root id="root">
+        <element id="archive" name="server.jar">
+          <element id="module-output" name="server" />
+          <element id="directory" name="META-INF">
+            <element id="dir-copy" path="$PROJECT_DIR$/src/main/java/META-INF" />
+          </element>
+        </element>
+        <element id="library" level="project" name="Maven: commons-codec:commons-codec:1.9" />
+        <element id="library" level="project" name="Maven: com.fasterxml.jackson.core:jackson-databind:2.7.4" />
+        <element id="library" level="project" name="Maven: de.bytefish.fcmjava:fcmjava-client:2.1" />
+        <element id="library" level="project" name="Maven: org.apache.httpcomponents:httpcore:4.4.4" />
+        <element id="library" level="project" name="Maven: de.bytefish.fcmjava:fcmjava-core:2.1" />
+        <element id="library" level="project" name="Maven: org.apache.httpcomponents:httpclient:4.5.2" />
+        <element id="library" level="project" name="Maven: com.fasterxml.jackson.core:jackson-core:2.7.4" />
+        <element id="library" level="project" name="Maven: commons-logging:commons-logging:1.2" />
+        <element id="library" level="project" name="Maven: com.fasterxml.jackson.core:jackson-annotations:2.7.4" />
+      </root>
+    </artifact>
+  </component>
   <component name="CompilerConfiguration">
     <annotationProcessing>
       <profile name="Maven default annotation processors profile" enabled="true">

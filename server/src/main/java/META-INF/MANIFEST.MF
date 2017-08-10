@@ -1,0 +1,7 @@
+Manifest-Version: 1.0
+Class-Path: commons-codec-1.9.jar jackson-databind-2.7.4.jar fcmjava-c
+ lient-2.1.jar httpcore-4.4.4.jar fcmjava-core-2.1.jar httpclient-4.5.
+ 2.jar jackson-core-2.7.4.jar commons-logging-1.2.jar jackson-annotati
+ ons-2.7.4.jar
+Main-Class: com.pleaseignore.pings.server.PingBroadcastServer
+
