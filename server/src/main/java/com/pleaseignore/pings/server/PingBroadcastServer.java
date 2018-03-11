@@ -14,9 +14,7 @@ import de.bytefish.fcmjava.responses.TopicMessageResponse;
 import org.apache.http.NameValuePair;
 import org.apache.http.client.utils.URLEncodedUtils;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.net.InetSocketAddress;
 import java.nio.charset.Charset;
 import java.util.*;
@@ -87,11 +85,18 @@ public final class PingBroadcastServer implements Runnable {
 		try {
 			final PingBroadcastServer server = new PingBroadcastServer();
 			server.start();
-			// Wait for ENTER press, then shut down
-			final BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
-			try {
-				br.readLine();
-			} catch (IOException ignore) { }
+			// Use interrupt() to stop
+			do {
+				final long interval = 60000L * Math.round(60.0 * (1.0 + Math.random() * 4.0));
+				try {
+					Thread.sleep(interval);
+				} catch (InterruptedException e) {
+					// Shut down
+					break;
+				}
+				// Send a dummy ping
+				server.sendPing("Ping was sent at " + new Date().toString(), "all");
+			} while (true);
 			server.stop();
 		} catch (PingServerException e) {
 			// Exception when starting/stopping server
